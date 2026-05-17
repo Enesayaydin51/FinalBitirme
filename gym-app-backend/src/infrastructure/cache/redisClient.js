@@ -11,7 +11,7 @@ class RedisClient {
       return process.env.REDIS_URL;
     }
 
-    const host = process.env.REDIS_HOST || 'localhost';
+    const host = process.env.REDIS_HOST || '127.0.0.1';
     const port = process.env.REDIS_PORT || '6379';
     const password = process.env.REDIS_PASSWORD;
 

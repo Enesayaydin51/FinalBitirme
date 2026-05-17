@@ -47,6 +47,7 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+      - ./gym-app-backend/.env
     environment:
       NODE_ENV: development
       PORT: 3000
@@ -57,7 +58,6 @@ services:
       DB_PASSWORD: postgres
       JWT_SECRET: gym_app_jwt_secret_key_2024_very_secure
       JWT_EXPIRES_IN: 7d
-      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       REDIS_ENABLED: true
       REDIS_HOST: redis
       REDIS_PORT: 6379

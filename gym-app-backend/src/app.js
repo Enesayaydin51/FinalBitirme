@@ -7,13 +7,20 @@ const swaggerJsdoc = require('swagger-jsdoc');
 const fs = require('fs');
 const path = require('path');
 
-// Load .env file only if it exists (for local development)
-// Docker Compose environment variables take precedence (override: false)
+// Yerel npm start: .env okunur. Docker Compose: DB_HOST/REDIS_HOST container env'den gelir; .env onları ezmez.
 const envPath = path.join(__dirname, '..', '.env');
+const runningInCompose = process.env.DB_HOST === 'postgres';
+const isProduction = process.env.NODE_ENV === 'production';
+
 if (fs.existsSync(envPath)) {
-  require('dotenv').config({ path: envPath, override: false });
+  const parsed = require('dotenv').parse(fs.readFileSync(envPath));
+  if (!String(process.env.GEMINI_API_KEY || '').trim() && parsed.GEMINI_API_KEY?.trim()) {
+    process.env.GEMINI_API_KEY = parsed.GEMINI_API_KEY.trim();
+  }
+  if (!runningInCompose && !isProduction) {
+    require('dotenv').config({ path: envPath, override: false });
+  }
 } else {
-  // If .env doesn't exist, dotenv will use process.env (from Docker Compose)
   require('dotenv').config({ override: false });
 }
 
@@ -27,7 +34,7 @@ process.env.DB_PASSWORD = process.env.DB_PASSWORD || 'postgres';
 process.env.JWT_SECRET = process.env.JWT_SECRET || 'gym_app_jwt_secret_key_2024_very_secure';
 process.env.JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '24h';
 process.env.REDIS_ENABLED = process.env.REDIS_ENABLED || 'true';
-process.env.REDIS_HOST = process.env.REDIS_HOST || 'localhost';
+process.env.REDIS_HOST = process.env.REDIS_HOST || '127.0.0.1';
 process.env.REDIS_PORT = process.env.REDIS_PORT || '6379';
 process.env.REDIS_CONNECT_TIMEOUT_MS = process.env.REDIS_CONNECT_TIMEOUT_MS || '5000';
 
@@ -83,24 +90,35 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Middleware
-// app.use(helmet()); // Geçici olarak devre dışı
-app.use(cors({
-  origin: [
+function buildCorsOrigin() {
+  if (process.env.CORS_ORIGIN === '*') return true;
+  const extra = (process.env.CORS_ORIGINS || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const publicUrl = process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL;
+  const defaults = [
     'http://localhost:3000',
-    'http://localhost:8081',  // Metro bundler debug
+    'http://localhost:8081',
     'http://127.0.0.1:3000',
     'http://127.0.0.1:8081',
-    'http://10.0.2.2:8081',   // Android emulator
-    'http://10.0.2.2:3000',   // Android emulator API access
-    'http://192.168.134.230:3000', // Gerçek cihaz test IP
-    'http://192.168.134.230:8081',  // Gerçek cihaz Metro bundler
-    /^http:\/\/192\.168\.\d+\.\d+:\d+$/, // Tüm yerel ağ IP'leri için regex
-    /^http:\/\/10\.0\.2\.\d+:\d+$/ // Android emulator IP'leri için regex
-  ],
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
-}));
+    'http://10.0.2.2:8081',
+    'http://10.0.2.2:3000',
+    /^http:\/\/192\.168\.\d+\.\d+:\d+$/,
+    /^http:\/\/10\.\d+\.\d+\.\d+:\d+$/,
+  ];
+  if (publicUrl) defaults.push(publicUrl);
+  return [...defaults, ...extra];
+}
+
+app.use(
+  cors({
+    origin: buildCorsOrigin(),
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+  })
+);
 
 app.use(morgan('combined'));
 // Video base64 (form-score); OOM önlemek için makul limit (15–20 MB video ≈ 20–27 MB)

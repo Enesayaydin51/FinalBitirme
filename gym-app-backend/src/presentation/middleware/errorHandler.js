@@ -8,7 +8,7 @@ const errorHandler = (err, req, res, next) => {
   // AI / iş mantığından gelen kullanıcı mesajlarını ilet (Türkçe hata metinleri)
   if (err.message && typeof err.message === 'string' && err.message.length > 0 && err.message.length < 300) {
     const lower = err.message.toLowerCase();
-    if (lower.includes('servis') || lower.includes('lütfen') || lower.includes('kota') || lower.includes('zaman aşımı') || lower.includes('ağ') || lower.includes('api anahtarı')) {
+    if (lower.includes('servis') || lower.includes('lütfen') || lower.includes('kota') || lower.includes('zaman aşımı') || lower.includes('ağ') || lower.includes('api anahtarı') || lower.includes('yapılandırılmamış') || lower.includes('gemini')) {
       message = err.message;
       statusCode = 503;
     }

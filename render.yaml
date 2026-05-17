@@ -1,0 +1,36 @@
+# Render Blueprint — https://render.com/docs/blueprint-spec
+# Kullanım: Render Dashboard → New → Blueprint → bu repo
+
+services:
+  - type: web
+    name: gym-app-api
+    runtime: docker
+    dockerfilePath: ./gym-app-backend/Dockerfile
+    dockerContext: ./gym-app-backend
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+      - key: REDIS_ENABLED
+        value: "false"
+      - key: JWT_EXPIRES_IN
+        value: 7d
+      - key: CORS_ORIGIN
+        value: "*"
+      - key: JWT_SECRET
+        generateValue: true
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: DATABASE_URL
+        fromDatabase:
+          name: gym-app-db
+          property: connectionString
+
+databases:
+  - name: gym-app-db
+    databaseName: gym_app_db
+    user: gym_app
+    plan: free
