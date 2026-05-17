@@ -1,0 +1,99 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: gym-app-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - gym-app-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: gym-app-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: gym_app_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./gym-app-backend/gym-app-database:/docker-entrypoint-initdb.d
+    networks:
+      - gym-app-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Backend API
+  backend:
+    build:
+      context: ./gym-app-backend
+      dockerfile: Dockerfile
+    container_name: gym-app-backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: gym_app_db
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      JWT_SECRET: gym_app_jwt_secret_key_2024_very_secure
+      JWT_EXPIRES_IN: 7d
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      REDIS_ENABLED: true
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_CONNECT_TIMEOUT_MS: 5000
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - gym-app-network
+    volumes:
+      - ./gym-app-backend:/app
+      - /app/node_modules
+
+  # PgAdmin (Database Management)
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: gym-app-pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@gymapp.com
+      PGADMIN_DEFAULT_PASSWORD: admin123
+    ports:
+      - "5050:80"
+    depends_on:
+      - postgres
+    networks:
+      - gym-app-network
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  gym-app-network:
+    driver: bridge
