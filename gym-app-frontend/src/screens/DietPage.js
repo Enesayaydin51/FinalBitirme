@@ -32,6 +32,11 @@ import { useTranslation } from "react-i18next";
 import { getGoalLabel } from "../utils/profileOptions";
 import { displayDay, displayDayShort, displayText } from "../utils/displayTranslations";
 import { getContentLocale, needsContentTranslation, normalizeLocale } from "../utils/aiLocale";
+import {
+  AI_WEEKLY_FEATURES,
+  getFreeWeeklyAiUsageStatus,
+  markFreeWeeklyAiUsage,
+} from "../utils/aiWeeklyUsage";
 import { useFocusEffect } from "@react-navigation/native";
 
 import WaterWeeklyCard from "../components/WaterWeeklyCard";
@@ -473,16 +478,29 @@ const DietPage = () => {
 
   const plan = dietPlans[goal] || dietPlans["Kilo Koruma"];
 
+  const showFreeAiLimitAlert = () => {
+    Alert.alert(
+      "Pro üyelik gerekli",
+      "Bu AI özelliğini ücretsiz planda haftada 1 kez kullanabilirsiniz. Daha fazla kullanım için Pro plana geçmelisiniz.",
+      [
+        { text: "İptal", style: "cancel" },
+        { text: "Profil", onPress: () => navigation.navigate("Profile") },
+      ]
+    );
+  };
+
+  const ensureLocalFreeAiQuota = async (featureKey) => {
+    // Free plan AI kullanım kuralı: ikinci buton basışında API/Gemini çağrısı başlamadan yerel haftalık kota kontrol edilir.
+    const status = await getFreeWeeklyAiUsageStatus({ userKey: userId, featureKey, isPro });
+    if (!status.allowed) {
+      showFreeAiLimitAlert();
+      return false;
+    }
+    return true;
+  };
+
   const pickPlatePhotoAndAnalyze = async () => {
-    if (!isPro) {
-      Alert.alert(
-        t("diet.proFeature"),
-        t("diet.platePaywall"),
-        [
-          { text: t("common.cancel"), style: "cancel" },
-          { text: t("tabs.profile"), onPress: () => navigation.navigate("Profile") },
-        ]
-      );
+    if (!(await ensureLocalFreeAiQuota(AI_WEEKLY_FEATURES.PLATE_ANALYZE))) {
       return;
     }
 
@@ -538,6 +556,7 @@ const DietPage = () => {
 
       const res = await apiService.analyzePlatePhoto(imageBase64, mimeType, platePortion, normalizeLocale(i18n.language));
       if (res?.success && res?.data) {
+        await markFreeWeeklyAiUsage({ userKey: userId, featureKey: AI_WEEKLY_FEATURES.PLATE_ANALYZE, isPro });
         setPlateResult(res.data);
       } else {
         setPlateError(displayText(res?.message || t("diet.couldNotAnalyzePlate"), i18n.language));
@@ -554,11 +573,15 @@ const DietPage = () => {
       Alert.alert(t("common.error"), t("diet.questionRequired"));
       return;
     }
+    if (!(await ensureLocalFreeAiQuota(AI_WEEKLY_FEATURES.NUTRITION_QUESTION))) {
+      return;
+    }
     setAiError("");
     setAiLoading(true);
     try {
       const response = await apiService.askNutritionQuestion(aiQuestion, normalizeLocale(i18n.language));
       if (response.success) {
+        await markFreeWeeklyAiUsage({ userKey: userId, featureKey: AI_WEEKLY_FEATURES.NUTRITION_QUESTION, isPro });
         const answerText = String(response?.data?.answer || "").trim();
         setAiAnswer(answerText);
         setAiAnswerLocale(normalizeLocale(response?.data?.locale || i18n.language));
@@ -606,6 +629,9 @@ const DietPage = () => {
   }, [i18n.language, aiAnswerLocale, aiAnswer]);
 
   const generateAIPlan = async () => {
+    if (!(await ensureLocalFreeAiQuota(AI_WEEKLY_FEATURES.NUTRITION_PLAN))) {
+      return;
+    }
     setAiPlanLoading(true);
     try {
       let currentUserDetails = userDetails;
@@ -625,6 +651,7 @@ const DietPage = () => {
 
       const response = await apiService.generateAIPlan(normalizeLocale(i18n.language));
       if (response.success) {
+        await markFreeWeeklyAiUsage({ userKey: userId, featureKey: AI_WEEKLY_FEATURES.NUTRITION_PLAN, isPro });
         const planData = response.data?.data ?? response.data;
         const shapedPlan = normalizeFullNutritionPlan(planData);
         setAiPlan(shapedPlan);
@@ -657,7 +684,7 @@ const DietPage = () => {
       if (error.code === 'PRO_REQUIRED') {
         Alert.alert(
           "Pro üyelik gerekli",
-          error.userMessage || "Bu özelliği daha fazla kullanmak için Pro plana geçmelisiniz.",
+          error.userMessage || "Bu AI özelliğini ücretsiz planda haftada 1 kez kullanabilirsiniz. Daha fazla kullanım için Pro plana geçmelisiniz.",
           [
             { text: "İptal", style: "cancel" },
             { text: "Profil", onPress: () => navigation.navigate("Profile") }
@@ -1255,7 +1282,8 @@ const DietPage = () => {
                 keyboardShouldPersistTaps="handled"
               >
                 <View style={[styles.inputCard, COMMON_STYLES.shadowLight, { marginBottom: 0 }]}>
-                  {!isPro ? (
+                  {/* Free plan AI kullanım kuralı: tabak analizi artık 0 hak değil, haftada 1 ücretsiz; bu eski paywall devre dışı bırakıldı. */}
+                  {false && !isPro ? (
                     <View style={[styles.platePaywall, COMMON_STYLES.shadowPremium]}>
                       <LinearGradient
                         colors={[COLORS.secondaryLight, COLORS.white]}

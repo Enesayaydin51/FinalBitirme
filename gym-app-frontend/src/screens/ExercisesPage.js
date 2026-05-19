@@ -40,6 +40,11 @@ import {
   displayText,
 } from "../utils/displayTranslations";
 import { getContentLocale, needsContentTranslation, normalizeLocale } from "../utils/aiLocale";
+import {
+  AI_WEEKLY_FEATURES,
+  getFreeWeeklyAiUsageStatus,
+  markFreeWeeklyAiUsage,
+} from "../utils/aiWeeklyUsage";
 
 const { width, height } = Dimensions.get("window");
 
@@ -429,6 +434,7 @@ const ExercisesPage = ({ navigation }) => {
   const userDetails = useSelector((state) => state.user.userDetails);
   const token = useSelector((state) => state.user.token);
   const isPro = !!(user?.isPro ?? userDetails?.isPro);
+  const aiUsageUserKey = user?.id ?? user?.email ?? "anonymous";
 
   const [expandedExercises, setExpandedExercises] = useState({});
   const [videoModal, setVideoModal] = useState(false);
@@ -521,12 +527,26 @@ const ExercisesPage = ({ navigation }) => {
   const showAiProgramLimitAlert = (message) => {
     Alert.alert(
       "Pro üyelik gerekli",
-      message || "Bu özelliği daha fazla kullanmak için Pro plana geçmelisiniz.",
+      message || "Bu AI özelliğini ücretsiz planda haftada 1 kez kullanabilirsiniz. Daha fazla kullanım için Pro plana geçmelisiniz.",
       [
         { text: "İptal", style: "cancel" },
         { text: "Profil", onPress: navigateToProfileTab },
       ]
     );
+  };
+
+  const ensureLocalFreeAiQuota = async (featureKey) => {
+    // Free plan AI kullanım kuralı: ikinci buton basışında liste/API/Gemini çağrısı başlamadan yerel haftalık kota kontrol edilir.
+    const status = await getFreeWeeklyAiUsageStatus({
+      userKey: aiUsageUserKey,
+      featureKey,
+      isPro,
+    });
+    if (!status.allowed) {
+      showAiProgramLimitAlert();
+      return false;
+    }
+    return true;
   };
 
   const toggleExpand = (weekNum, day, index) => {
@@ -544,15 +564,7 @@ const ExercisesPage = ({ navigation }) => {
   };
 
   const processFormScoreVideo = async (uri, asset = {}) => {
-    if (!isPro) {
-      Alert.alert(
-        t("exercises.proFeature"),
-        t("exercises.formPaywall"),
-        [
-          { text: t("common.cancel"), style: "cancel" },
-          { text: t("tabs.profile"), onPress: () => navigation.navigate("Profile") },
-        ]
-      );
+    if (!(await ensureLocalFreeAiQuota(AI_WEEKLY_FEATURES.FORM_SCORE))) {
       return;
     }
     let fileSize = 0;
@@ -583,6 +595,11 @@ const ExercisesPage = ({ navigation }) => {
       const mimeType = resolveFormScoreMimeType(uri, asset);
       const res = await apiService.analyzeFormScore(base64, mimeType, "", normalizeLocale(i18n.language));
       if (res.success && res.data?.feedback) {
+        await markFreeWeeklyAiUsage({
+          userKey: aiUsageUserKey,
+          featureKey: AI_WEEKLY_FEATURES.FORM_SCORE,
+          isPro,
+        });
         setFormScoreFeedback(res.data.feedback);
         setFormScoreFeedbackLocale(normalizeLocale(res.data.locale || i18n.language));
       } else {
@@ -621,6 +638,9 @@ const ExercisesPage = ({ navigation }) => {
 
   const pickVideoFromGalleryForScore = async () => {
     try {
+      if (!(await ensureLocalFreeAiQuota(AI_WEEKLY_FEATURES.FORM_SCORE))) {
+        return;
+      }
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== "granted") {
         Alert.alert(t("common.permissionRequired"), t("exercises.videoGalleryPermission"));
@@ -642,6 +662,9 @@ const ExercisesPage = ({ navigation }) => {
 
   const recordVideoForFormScore = async () => {
     try {
+      if (!(await ensureLocalFreeAiQuota(AI_WEEKLY_FEATURES.FORM_SCORE))) {
+        return;
+      }
       const { status } = await ImagePicker.requestCameraPermissionsAsync();
       if (status !== "granted") {
         Alert.alert(t("common.permissionRequired"), t("exercises.videoCameraPermission"));
@@ -683,10 +706,19 @@ const ExercisesPage = ({ navigation }) => {
   }, [tab]);
 
   const handleGenerateAiProgram = async () => {
+    if (!(await ensureLocalFreeAiQuota(AI_WEEKLY_FEATURES.EXERCISE_PROGRAM))) {
+      return;
+    }
+
     if (!isPro) {
       const programsForLimitCheck = await loadSavedAiPrograms();
       const hasWeeklyFreeProgram = programsForLimitCheck.some((item) => wasCreatedThisWeek(item.createdAt));
       if (hasWeeklyFreeProgram) {
+        await markFreeWeeklyAiUsage({
+          userKey: aiUsageUserKey,
+          featureKey: AI_WEEKLY_FEATURES.EXERCISE_PROGRAM,
+          isPro,
+        });
         showAiProgramLimitAlert();
         return;
       }
@@ -718,6 +750,11 @@ const ExercisesPage = ({ navigation }) => {
       clearTimeout(preparationAlertTimer);
       preparationAlertTimer = null;
       if (res.success && res.data?.program) {
+        await markFreeWeeklyAiUsage({
+          userKey: aiUsageUserKey,
+          featureKey: AI_WEEKLY_FEATURES.EXERCISE_PROGRAM,
+          isPro,
+        });
         const prog = normalizeMonthlyAiProgram(res.data.program);
         setAiMonthlyProgram(prog);
         setAiSelectedWeek(1);
@@ -1257,7 +1294,8 @@ const ExercisesPage = ({ navigation }) => {
               <View style={styles.sectionHeader}>
                 <Text style={styles.sectionTitle}>{t("exercises.formScoring")}</Text>
               </View>
-              {!isPro ? (
+              {/* Free plan AI kullanım kuralı: form analizi artık 0 hak değil, haftada 1 ücretsiz; eski paywall devre dışı bırakıldı. */}
+              {false && !isPro ? (
                 <View style={[styles.formScorePaywall, COMMON_STYLES.shadowPremium]}>
                   <LinearGradient
                     colors={[COLORS.purpleLight, COLORS.white]}

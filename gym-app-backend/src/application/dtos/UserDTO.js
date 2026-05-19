@@ -48,6 +48,52 @@ class UserDTO {
     const phoneRegex = /^(\+90|0)?[5][0-9]{9}$/;
     return phoneRegex.test(phoneNumber);
   }
+
+  static normalizePhoneNumber(phoneNumber) {
+    if (!phoneNumber) return null;
+    let local = String(phoneNumber).replace(/\D/g, '');
+    if (local.startsWith('90')) local = local.slice(2);
+    if (local.startsWith('0')) local = local.slice(1);
+    if (!/^5\d{9}$/.test(local)) return phoneNumber;
+    return `+90${local}`;
+  }
+
+  static normalizeDateOfBirth(dateOfBirth) {
+    if (!dateOfBirth) return null;
+    const raw = String(dateOfBirth).trim();
+    const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!match) return dateOfBirth;
+
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    const date = new Date(Date.UTC(year, month - 1, day));
+    const isValid =
+      date.getUTCFullYear() === year &&
+      date.getUTCMonth() === month - 1 &&
+      date.getUTCDate() === day;
+
+    if (!isValid || date > new Date()) return dateOfBirth;
+    return raw;
+  }
+
+  static validateDateOfBirth(dateOfBirth) {
+    if (!dateOfBirth) return true;
+    const raw = String(dateOfBirth).trim();
+    const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!match) return false;
+
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    const date = new Date(Date.UTC(year, month - 1, day));
+    return (
+      date.getUTCFullYear() === year &&
+      date.getUTCMonth() === month - 1 &&
+      date.getUTCDate() === day &&
+      date <= new Date()
+    );
+  }
 }
 
 class CreateUserDTO {
@@ -56,8 +102,8 @@ class CreateUserDTO {
     this.password = data.password;
     this.firstName = data.firstName;
     this.lastName = data.lastName;
-    this.phoneNumber = data.phoneNumber;
-    this.dateOfBirth = data.dateOfBirth;
+    this.phoneNumber = UserDTO.normalizePhoneNumber(data.phoneNumber ?? data.phone);
+    this.dateOfBirth = UserDTO.normalizeDateOfBirth(data.dateOfBirth);
   }
 
   validate() {
@@ -83,8 +129,8 @@ class CreateUserDTO {
       errors.push('Invalid phone number format');
     }
 
-    if (this.dateOfBirth && isNaN(new Date(this.dateOfBirth).getTime())) {
-      errors.push('Invalid date of birth format');
+    if (this.dateOfBirth && !UserDTO.validateDateOfBirth(this.dateOfBirth)) {
+      errors.push('Invalid date of birth format. Use YYYY-MM-DD');
     }
 
     return errors;

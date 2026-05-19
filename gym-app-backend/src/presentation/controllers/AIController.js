@@ -6,6 +6,17 @@ const UserXpRepository = require('../../infrastructure/repositories/UserXpReposi
 const { UserDTO } = require('../../application/dtos/UserDTO');
 const NutritionPlanRepository = require('../../infrastructure/repositories/NutritionPlanRepository');
 const AIExerciseProgramRepository = require('../../infrastructure/repositories/AIExerciseProgramRepository');
+const AIWeeklyUsageRepository = require('../../infrastructure/repositories/AIWeeklyUsageRepository');
+
+const FREE_WEEKLY_AI_LIMIT = 1;
+const AI_FEATURES = {
+  NUTRITION_QUESTION: 'nutrition_question',
+  NUTRITION_PLAN: 'nutrition_plan',
+  FOOD_SUGGESTIONS: 'food_suggestions',
+  EXERCISE_PROGRAM: 'exercise_program',
+  PLATE_ANALYZE: 'plate_analyze',
+  FORM_SCORE: 'form_score',
+};
 
 function defaultExerciseProgramCompletion() {
   return {
@@ -37,6 +48,7 @@ class AIController {
     this.nutritionPlanRepository = new NutritionPlanRepository();
     this.exerciseProgramRepository = new AIExerciseProgramRepository();
     this.userXpRepository = new UserXpRepository();
+    this.aiWeeklyUsageRepository = new AIWeeklyUsageRepository();
   }
 
   _syncAchievements(userId) {
@@ -44,6 +56,37 @@ class AIController {
       console.warn('[Achievements] sync failed:', err?.message || err);
       return [];
     });
+  }
+
+  async _ensureFreeWeeklyAiQuota(userId, featureKey) {
+    const user = await this.userRepository.findById(userId);
+    if (user && UserDTO.isProActive(user)) {
+      return { allowed: true, isPro: true };
+    }
+
+    const weeklyCount = await this.aiWeeklyUsageRepository.countThisWeekByUserIdAndFeature(
+      userId,
+      featureKey
+    );
+
+    if (weeklyCount >= FREE_WEEKLY_AI_LIMIT) {
+      return {
+        allowed: false,
+        isPro: false,
+        response: {
+          success: false,
+          code: 'PRO_REQUIRED',
+          message: 'Bu AI özelliğini ücretsiz planda haftada 1 kez kullanabilirsiniz. Daha fazla kullanım için Pro plana geçmelisiniz.',
+        },
+      };
+    }
+
+    return { allowed: true, isPro: false };
+  }
+
+  async _recordFreeWeeklyAiUse(quota, userId, featureKey) {
+    if (quota?.isPro) return null;
+    return this.aiWeeklyUsageRepository.recordUse(userId, featureKey);
   }
 
   /**
@@ -86,6 +129,12 @@ class AIController {
         });
       }
 
+      // Free plan AI kullanım kuralı: her AI destekli özellik haftada 1 kez çalışır; limit dolduysa Gemini çağrısı yapılmaz.
+      const quota = await this._ensureFreeWeeklyAiQuota(userId, AI_FEATURES.NUTRITION_QUESTION);
+      if (!quota.allowed) {
+        return res.status(403).json(quota.response);
+      }
+
       // Kullanıcı bilgilerini al
       const user = await this.userRepository.findById(userId);
       const userDetails = await this.userRepository.getUserDetails(userId);
@@ -101,6 +150,7 @@ class AIController {
 
       const resolvedLocale = normalizeLocale(locale);
       const answer = await this.aiService.answerNutritionQuestion(question, userContext, resolvedLocale);
+      await this._recordFreeWeeklyAiUse(quota, userId, AI_FEATURES.NUTRITION_QUESTION);
 
       res.status(200).json({
         success: true,
@@ -137,16 +187,10 @@ class AIController {
       const userId = req.user.id;
       const { locale } = req.body || {};
 
-      const user = await this.userRepository.findById(userId);
-      if (!user || !UserDTO.isProActive(user)) {
-        const weeklyCount = await this.nutritionPlanRepository.countThisWeekByUserId(userId);
-        if (weeklyCount >= 2) {
-          return res.status(403).json({
-            success: false,
-            code: 'PRO_REQUIRED',
-            message: 'Bu özelliği daha fazla kullanmak için Pro plana geçmelisiniz.',
-          });
-        }
+      // Free plan AI kullanım kuralı: beslenme planı da haftada 1 hak kullanır; limit dolduysa AI token harcanmaz.
+      const quota = await this._ensureFreeWeeklyAiQuota(userId, AI_FEATURES.NUTRITION_PLAN);
+      if (!quota.allowed) {
+        return res.status(403).json(quota.response);
       }
 
       const userDetails = await this.userRepository.getUserDetails(userId);
@@ -162,6 +206,7 @@ class AIController {
 
       const resolvedLocale = normalizeLocale(locale);
       const plan = await this.aiService.generateNutritionPlan(userContext, resolvedLocale);
+      await this._recordFreeWeeklyAiUse(quota, userId, AI_FEATURES.NUTRITION_PLAN);
 
       res.status(200).json({
         success: true,
@@ -513,6 +558,12 @@ class AIController {
         });
       }
 
+      // Free plan AI kullanım kuralı: yemek önerileri haftada 1 kez; ikinci denemede Gemini çağrısı yapılmaz.
+      const quota = await this._ensureFreeWeeklyAiQuota(userId, AI_FEATURES.FOOD_SUGGESTIONS);
+      if (!quota.allowed) {
+        return res.status(403).json(quota.response);
+      }
+
       // Kullanıcı bilgilerini al
       const userDetails = await this.userRepository.getUserDetails(userId);
 
@@ -524,6 +575,7 @@ class AIController {
       };
 
       const foods = await this.aiService.suggestFoods(criteria, userContext);
+      await this._recordFreeWeeklyAiUse(quota, userId, AI_FEATURES.FOOD_SUGGESTIONS);
 
       res.status(200).json({
         success: true,
@@ -580,16 +632,10 @@ class AIController {
       const survey = bodySurvey && typeof bodySurvey === 'object' ? bodySurvey : {};
       const resolvedLocale = normalizeLocale(locale || req.headers['accept-language'] || 'tr');
 
-      const user = await this.userRepository.findById(userId);
-      if (!user || !UserDTO.isProActive(user)) {
-        const weeklyCount = await this.exerciseProgramRepository.countThisWeekByUserId(userId);
-        if (weeklyCount >= 1) {
-          return res.status(403).json({
-            success: false,
-            code: 'PRO_REQUIRED',
-            message: 'Bu özelliği daha fazla kullanmak için Pro plana geçmelisiniz.',
-          });
-        }
+      // Free plan AI kullanım kuralı: AI egzersiz programı haftada 1 hak kullanır; limit dolduysa AI çağrısı başlamaz.
+      const quota = await this._ensureFreeWeeklyAiQuota(userId, AI_FEATURES.EXERCISE_PROGRAM);
+      if (!quota.allowed) {
+        return res.status(403).json(quota.response);
       }
       const difficultyLabels = {
         tr: { beginner: 'başlangıç', intermediate: 'orta', advanced: 'ileri' },
@@ -643,6 +689,7 @@ class AIController {
         programToSave,
         resolvedProgramName
       );
+      await this._recordFreeWeeklyAiUse(quota, userId, AI_FEATURES.EXERCISE_PROGRAM);
 
       const xpGranted = await awardExerciseCompletionXp(
         userId,
@@ -885,14 +932,11 @@ class AIController {
    */
   async analyzePlatePhoto(req, res, next) {
     try {
-      const user = await this.userRepository.findById(req.user.id);
-      if (!user || !UserDTO.isProActive(user)) {
-        return res.status(403).json({
-          success: false,
-          code: 'PRO_REQUIRED',
-          message:
-            'Tabak fotoğrafı ile besin analizi yalnızca Pro üyeler içindir. Profilden Pro’ya yükseltebilirsiniz.',
-        });
+      const userId = req.user.id;
+      // Free plan AI kullanım kuralı: tabak fotoğrafı analizi artık ücretsiz planda haftada 1 kez açık.
+      const quota = await this._ensureFreeWeeklyAiQuota(userId, AI_FEATURES.PLATE_ANALYZE);
+      if (!quota.allowed) {
+        return res.status(403).json(quota.response);
       }
 
       const {
@@ -962,6 +1006,7 @@ JSON ŞEMA:
 `;
 
       const result = await this.aiService.analyzePlatePhoto(imageBuffer, mimeType, prompt);
+      await this._recordFreeWeeklyAiUse(quota, userId, AI_FEATURES.PLATE_ANALYZE);
 
       res.status(200).json({
         success: true,
@@ -979,13 +1024,11 @@ JSON ŞEMA:
    */
   async analyzeFormScore(req, res, next) {
     try {
-      const user = await this.userRepository.findById(req.user.id);
-      if (!user || !UserDTO.isProActive(user)) {
-        return res.status(403).json({
-          success: false,
-          code: 'PRO_REQUIRED',
-          message: 'AI ile video form analizi yalnızca Pro üyeler içindir. Profilden Pro’ya yükseltebilirsiniz.',
-        });
+      const userId = req.user.id;
+      // Free plan AI kullanım kuralı: video form analizi ücretsiz planda haftada 1 kez denenebilir.
+      const quota = await this._ensureFreeWeeklyAiQuota(userId, AI_FEATURES.FORM_SCORE);
+      if (!quota.allowed) {
+        return res.status(403).json(quota.response);
       }
 
       const { videoBase64, mimeType = 'video/mp4', exerciseName } = req.body;
@@ -1033,6 +1076,7 @@ Güvenlik: (kısa cümle)
 Özet ve öneri: (2-3 cümle)`;
 
       const feedback = await this.aiService.analyzeVideo(videoBuffer, mimeType, prompt);
+      await this._recordFreeWeeklyAiUse(quota, userId, AI_FEATURES.FORM_SCORE);
       res.status(200).json({
         success: true,
         data: { feedback, locale: resolvedLocale },
