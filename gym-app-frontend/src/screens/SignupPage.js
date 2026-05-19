@@ -28,6 +28,60 @@ import { displayText } from "../utils/displayTranslations";
 
 const { width, height } = Dimensions.get("window");
 
+function formatTurkishPhoneInput(value) {
+  const digits = String(value || "").replace(/\D/g, "");
+  let local = digits;
+
+  if (local.startsWith("90")) local = local.slice(2);
+  if (local.startsWith("0")) local = local.slice(1);
+  local = local.slice(0, 10);
+
+  const parts = [];
+  if (local.length > 0) parts.push(local.slice(0, 3));
+  if (local.length > 3) parts.push(local.slice(3, 6));
+  if (local.length > 6) parts.push(local.slice(6, 8));
+  if (local.length > 8) parts.push(local.slice(8, 10));
+
+  return parts.join(" ");
+}
+
+function normalizeTurkishPhoneForApi(value) {
+  const digits = String(value || "").replace(/\D/g, "");
+  let local = digits;
+
+  if (local.startsWith("90")) local = local.slice(2);
+  if (local.startsWith("0")) local = local.slice(1);
+
+  if (!local) return null;
+  if (!/^5\d{9}$/.test(local)) return undefined;
+  return `+90${local}`;
+}
+
+function formatBirthDateInput(value) {
+  const digits = String(value || "").replace(/\D/g, "").slice(0, 8);
+  if (digits.length <= 2) return digits;
+  if (digits.length <= 4) return `${digits.slice(0, 2)}.${digits.slice(2)}`;
+  return `${digits.slice(0, 2)}.${digits.slice(2, 4)}.${digits.slice(4)}`;
+}
+
+function parseBirthDateForApi(value) {
+  const digits = String(value || "").replace(/\D/g, "");
+  if (!digits) return null;
+  if (digits.length !== 8) return undefined;
+
+  const day = Number(digits.slice(0, 2));
+  const month = Number(digits.slice(2, 4));
+  const year = Number(digits.slice(4, 8));
+  const date = new Date(Date.UTC(year, month - 1, day));
+  const isValid =
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day;
+
+  if (!isValid || date > new Date()) return undefined;
+  return `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
 function createSignupPageStyles(COLORS) {
   return StyleSheet.create({
     mainContainer: { flex: 1, backgroundColor: COLORS.bg },
@@ -146,14 +200,26 @@ const SignupPage = ({ navigation }) => {
       return;
     }
 
+    const normalizedPhoneNumber = normalizeTurkishPhoneForApi(phoneNumber);
+    if (normalizedPhoneNumber === undefined) {
+      Alert.alert(t("auth.alerts.errorTitle"), t("auth.alerts.invalidPhone"));
+      return;
+    }
+
+    const normalizedDateOfBirth = parseBirthDateForApi(dateOfBirth);
+    if (normalizedDateOfBirth === undefined) {
+      Alert.alert(t("auth.alerts.errorTitle"), t("auth.alerts.invalidBirthDate"));
+      return;
+    }
+
     setLoading(true);
     const userData = {
       firstName: firstName.trim(),
       lastName: lastName.trim(),
       email: email.trim(),
       password: password.trim(),
-      phone: phoneNumber ? phoneNumber.replace(/\s+/g, "") : null,
-      dateOfBirth: dateOfBirth ? dateOfBirth.split(/[-/.]/).reverse().join("-") : null,
+      phoneNumber: normalizedPhoneNumber,
+      dateOfBirth: normalizedDateOfBirth,
     };
 
     try {
@@ -271,8 +337,10 @@ const SignupPage = ({ navigation }) => {
                     placeholder="5XX XXX XX XX"
                     placeholderTextColor={COLORS.textMain}
                     value={phoneNumber}
-                    onChangeText={setPhoneNumber}
+                    onChangeText={(text) => setPhoneNumber(formatTurkishPhoneInput(text))}
                     keyboardType="phone-pad"
+                    textContentType="telephoneNumber"
+                    maxLength={13}
                   />
                 </View>
               </View>
@@ -286,8 +354,10 @@ const SignupPage = ({ navigation }) => {
                     placeholder={t("auth.signup.birthDatePlaceholder")}
                     placeholderTextColor={COLORS.textMain}
                     value={dateOfBirth}
-                    onChangeText={setDateOfBirth}
-                    keyboardType="numeric"
+                    onChangeText={(text) => setDateOfBirth(formatBirthDateInput(text))}
+                    keyboardType="number-pad"
+                    textContentType="birthdate"
+                    maxLength={10}
                   />
                 </View>
               </View>

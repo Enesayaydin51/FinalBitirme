@@ -436,9 +436,9 @@ const ProfilePage = ({ navigation }) => {
                     <Text style={styles.membershipPrice}>{t("profile.pro.price")}</Text>
                     <Text style={styles.membershipFeat}>{t("profile.pro.featureForm")}</Text>
                     <Pressable
-                      style={[styles.membershipBtn, subLoading && { opacity: 0.75 }]}
-                      onPress={handleSubscribePro}
-                      disabled={subLoading}
+                      // Pro satın alma/aktivasyon akışı şimdilik kapalı; kart yerinde kalır ama API çağrısı başlatmaz.
+                      style={[styles.membershipBtn, { opacity: 0.45 }]}
+                      disabled
                     >
                       {subLoading ? (
                         <ActivityIndicator color={COLORS.white} />

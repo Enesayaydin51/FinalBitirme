@@ -71,6 +71,8 @@
       "welcomeSignup": "Thanks for joining us, {{name}}!",
       "registerErrorTitle": "Registration Error",
       "registerFailed": "An error occurred during registration.",
+      "invalidPhone": "Enter the phone number in 5XX XXX XX XX format.",
+      "invalidBirthDate": "Enter a valid date of birth in DD.MM.YYYY format.",
       "serverFailed": "Could not connect to the server."
     }
   },

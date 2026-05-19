@@ -40,6 +40,7 @@ const ORDERED_FILES = [
   '13_add_membership_to_users.sql',
   '14_achievements.sql',
   '15_user_xp_ledger.sql',
+  '16_ai_weekly_usage.sql',
   'init_database.sql',
 ];
 

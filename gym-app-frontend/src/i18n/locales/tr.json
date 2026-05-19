@@ -71,6 +71,8 @@
       "welcomeSignup": "Aramıza katıldığın için teşekkürler {{name}}!",
       "registerErrorTitle": "Kayıt Hatası",
       "registerFailed": "Kayıt sırasında hata oluştu.",
+      "invalidPhone": "Telefon numarasını 5XX XXX XX XX formatında girin.",
+      "invalidBirthDate": "Doğum tarihini GG.AA.YYYY formatında ve geçerli bir tarih olarak girin.",
       "serverFailed": "Sunucuya bağlanılamadı."
     }
   },
