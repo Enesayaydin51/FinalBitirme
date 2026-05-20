@@ -10,14 +10,9 @@ class AIService {
       this.genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
     }
 
-    // Test sonucu: v1 API'de çalışan modeller (ListModels ile doğrulandı)
-    // Öncelik sırası: Hız (Flash) -> Zeka (Pro)
-    this.modelNames = [
-      'gemini-2.5-flash',  // En hızlı ve ucuz model (TEST EDİLDİ - ÇALIŞIYOR ✅)
-      'gemini-2.5-pro',    // Daha karmaşık işler için
-      'gemini-2.0-flash',  // Yedek flash model
-      'gemini-2.0-flash-001' // Alternatif
-    ];
+    // gemini-2.0-* yeni API anahtarlarında 404 (artık sunulmuyor); yalnızca 2.5 ailesi.
+    // Öncelik: Flash → Pro
+    this.modelNames = ['gemini-2.5-flash', 'gemini-2.5-pro'];
     
     // Çalışan modeli cache'le (performans için)
     this.cachedWorkingModel = null;
@@ -871,7 +866,7 @@ ${JSON.stringify(content)}`;
       { text: prompt },
     ];
 
-    const modelNamesForImage = ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.0-flash', 'gemini-2.0-flash-001'];
+    const modelNamesForImage = ['gemini-2.5-flash', 'gemini-2.5-pro'];
     let lastError = null;
 
     for (const modelName of modelNamesForImage) {
@@ -923,7 +918,7 @@ ${JSON.stringify(content)}`;
       { text: prompt }
     ];
 
-    const modelNamesForVideo = ['gemini-2.0-flash', 'gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.0-flash-001'];
+    const modelNamesForVideo = ['gemini-2.5-flash', 'gemini-2.5-pro'];
     let lastError = null;
 
     for (const modelName of modelNamesForVideo) {
@@ -963,6 +958,16 @@ ${JSON.stringify(content)}`;
     }
     if (error && (error.status === 401 || error.status === 403)) {
       throw new Error('API Anahtarı hatası.');
+    }
+    if (
+      error &&
+      (error.status === 404 ||
+        String(error.message || '').includes('404') ||
+        String(error.message || '').includes('no longer available'))
+    ) {
+      throw new Error(
+        'Seçilen AI modeli bu API anahtarı için kullanılamıyor. Lütfen daha sonra tekrar deneyin veya yöneticiye bildirin.'
+      );
     }
     if (error && (error.message?.includes('timeout') || error.message?.includes('ETIMEDOUT'))) {
       throw new Error('İstek zaman aşımına uğradı. Lütfen tekrar deneyin.');
